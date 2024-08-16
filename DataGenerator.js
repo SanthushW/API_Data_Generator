@@ -1,50 +1,47 @@
 const fs = require('fs');
-const { v4: uuidv4 } = require('uuid');
-const { faker } = require('@faker-js/faker');
-const connectToMongoDB = require('./mongoConnection.js');
 
-const NUM_TRAINS = 396; // Updated to actual number of trains
-const NUM_DAYS = 90;
-const DATA_INTERVAL_MINUTES = 1;
+// Configuration
+const numberOfTrains = 10; // Number of trains to simulate
+const dataPointsPerTrain = 1440; // Number of data points per train (e.g., 1440 for one per minute over 24 hours)
+const latitudeRange = { min: 5.9200, max: 9.8300 }; // Latitude range for Sri Lanka
+const longitudeRange = { min: 79.6500, max: 81.8700 }; // Longitude range for Sri Lanka
+const startTime = new Date().getTime() - 24 * 60 * 60 * 1000; // Start time (24 hours ago)
+const interval = 60 * 1000; // 1 minute intervals in milliseconds
 
-function generateLocationData(train_id, startDate, numEntries) {
-  const locationData = [];
-  let currentDate = new Date(startDate);
-
-  for (let i = 0; i < numEntries; i++) {
-    const location = {
-      location_id: uuidv4(),
-      train_id: train_id,
-      timestamp: new Date(currentDate),
-      latitude: faker.location.latitude(),
-      longitude: faker.location.longitude(),
-      speed: faker.number.int({ min: 30, max: 120 }), // Speed in km/h
-      direction: faker.number.int({ min: 0, max: 360 }) // Direction in degrees
-    };
-    locationData.push(location);
-    currentDate.setMinutes(currentDate.getMinutes() + DATA_INTERVAL_MINUTES);
-  }
-
-  return locationData;
+// Function to generate random latitude and longitude within a specified range
+function getRandomCoordinate(range) {
+    return (Math.random() * (range.max - range.min) + range.min).toFixed(6);
 }
 
-async function main() {
-    const client = await connectToMongoDB();
-    const db = client.db('trainData');
-    const collection = db.collection('locations');
-  
-    for (let trainId = 1; trainId <= NUM_TRAINS; trainId++) {
-      const startDate = new Date();
-      const numEntries = NUM_DAYS * 24 * 60 / DATA_INTERVAL_MINUTES;
-      const locationData = generateLocationData(trainId, startDate, numEntries);
-  
-      // Insert data into MongoDB
-      await collection.insertMany(locationData);
-      console.log(`Inserted data for train ${trainId}, inserted IDs: ${result.insertedIds}`);
+// Function to generate GPS data for a train
+function generateTrainData(trainId) {
+    const data = [];
+
+    for (let i = 0; i < dataPointsPerTrain; i++) {
+        const timestamp = new Date(startTime + i * interval).toISOString();
+        const latitude = getRandomCoordinate(latitudeRange);
+        const longitude = getRandomCoordinate(longitudeRange);
+
+        data.push({
+            trainId,
+            timestamp,
+            latitude,
+            longitude,
+        });
     }
-  
-    await client.close();
-    console.log('Data generation and insertion complete');
-  }
-  
-  main().catch(console.error);
+
+    return data;
+}
+
+// Generate data for all trains
+const allTrainData = [];
+
+for (let i = 1; i <= numberOfTrains; i++) {
+    const trainData = generateTrainData(`Train_${i}`);
+    allTrainData.push(...trainData);
+}
+
+// Write the data to a JSON file
+fs.writeFileSync('trainLocationData.json', JSON.stringify(allTrainData, null, 2));
+
+console.log('Train location data generated successfully!');
