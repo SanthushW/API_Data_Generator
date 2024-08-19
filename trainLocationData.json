@@ -1,0 +1,122 @@
+[
+  {
+    "trainId": "Train_1",
+    "timestamp": "2024-08-18T07:40:18.868Z",
+    "latitude": "7.897155",
+    "longitude": "81.451340"
+  },
+  {
+    "trainId": "Train_1",
+    "timestamp": "2024-08-18T07:41:18.868Z",
+    "latitude": "6.404367",
+    "longitude": "80.088240"
+  },
+  {
+    "trainId": "Train_1",
+    "timestamp": "2024-08-18T07:42:18.868Z",
+    "latitude": "6.059899",
+    "longitude": "80.544645"
+  },
+  {
+    "trainId": "Train_1",
+    "timestamp": "2024-08-18T07:43:18.868Z",
+    "latitude": "6.004944",
+    "longitude": "80.819910"
+  },
+  {
+    "trainId": "Train_1",
+    "timestamp": "2024-08-18T07:44:18.868Z",
+    "latitude": "6.072833",
+    "longitude": "80.650310"
+  },
+  {
+    "trainId": "Train_1",
+    "timestamp": "2024-08-18T07:45:18.868Z",
+    "latitude": "7.969906",
+    "longitude": "80.874370"
+  },
+  {
+    "trainId": "Train_1",
+    "timestamp": "2024-08-18T07:46:18.868Z",
+    "latitude": "9.276782",
+    "longitude": "80.465439"
+  },
+  {
+    "trainId": "Train_1",
+    "timestamp": "2024-08-18T07:47:18.868Z",
+    "latitude": "9.039972",
+    "longitude": "80.784555"
+  },
+  {
+    "trainId": "Train_1",
+    "timestamp": "2024-08-18T07:48:18.868Z",
+    "latitude": "6.119065",
+    "longitude": "81.858911"
+  },
+  {
+    "trainId": "Train_1",
+    "timestamp": "2024-08-18T07:49:18.868Z",
+    "latitude": "6.546218",
+    "longitude": "80.926545"
+  },
+  {
+    "trainId": "Train_2",
+    "timestamp": "2024-08-18T07:40:18.868Z",
+    "latitude": "7.236248",
+    "longitude": "79.822208"
+  },
+  {
+    "trainId": "Train_2",
+    "timestamp": "2024-08-18T07:41:18.868Z",
+    "latitude": "9.463593",
+    "longitude": "79.897626"
+  },
+  {
+    "trainId": "Train_2",
+    "timestamp": "2024-08-18T07:42:18.868Z",
+    "latitude": "6.876620",
+    "longitude": "80.537569"
+  },
+  {
+    "trainId": "Train_2",
+    "timestamp": "2024-08-18T07:43:18.868Z",
+    "latitude": "6.253179",
+    "longitude": "81.317026"
+  },
+  {
+    "trainId": "Train_2",
+    "timestamp": "2024-08-18T07:44:18.868Z",
+    "latitude": "6.139183",
+    "longitude": "80.847248"
+  },
+  {
+    "trainId": "Train_2",
+    "timestamp": "2024-08-18T07:45:18.868Z",
+    "latitude": "8.922244",
+    "longitude": "81.120749"
+  },
+  {
+    "trainId": "Train_2",
+    "timestamp": "2024-08-18T07:46:18.868Z",
+    "latitude": "6.638007",
+    "longitude": "80.287004"
+  },
+  {
+    "trainId": "Train_2",
+    "timestamp": "2024-08-18T07:47:18.868Z",
+    "latitude": "8.017396",
+    "longitude": "80.792715"
+  },
+  {
+    "trainId": "Train_2",
+    "timestamp": "2024-08-18T07:48:18.868Z",
+    "latitude": "8.592139",
+    "longitude": "79.748089"
+  },
+  {
+    "trainId": "Train_2",
+    "timestamp": "2024-08-18T07:49:18.868Z",
+    "latitude": "7.554764",
+    "longitude": "80.788561"
+  }
+]
