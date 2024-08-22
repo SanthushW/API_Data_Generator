@@ -1,0 +1,110 @@
+const fs = require('fs');
+const axios = require('axios');
+
+// Configuration
+const numberOfTrains = 1;
+const dataPointsPerTrain = 10;
+const startTime = new Date().getTime() - 24 * 60 * 60 * 1000;
+const interval = 60 * 1000;
+const apiKey = 'AIzaSyCmPlxCbwtWrPBSN46Y7bGyvDF1ry_R6kI';
+
+// Array of routes (start and end coordinates of major train routes in Sri Lanka)
+const routes = [
+    { start: { lat: 6.9344, lng: 79.8428 }, end: { lat: 7.2906, lng: 80.6337 } }, // Example route: Colombo to Kandy
+    // Add more routes here
+];
+
+// Function to get snapped points along a route using Google Maps Directions API
+async function getRouteData(start, end) {
+    const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${start.lat},${start.lng}&destination=${end.lat},${end.lng}&key=${apiKey}&mode=transit&transit_mode=rail`;
+    
+    try {
+        const response = await axios.get(url);
+        
+        // Check if routes are returned
+        if (response.data.routes && response.data.routes.length > 0) {
+            const points = response.data.routes[0].overview_polyline.points;
+            return decodePolyline(points);
+        } else {
+            console.error('No routes found for the provided coordinates:', start, end);
+            return []; // Return an empty array to prevent further errors
+        }
+    } catch (error) {
+        console.error('Error fetching route data:', error.message);
+        return []; // Return an empty array to prevent further errors
+    }
+}
+
+// Function to decode a polyline to an array of lat/lng pairs
+function decodePolyline(encoded) {
+    let points = [];
+    let index = 0, len = encoded.length;
+    let lat = 0, lng = 0;
+
+    while (index < len) {
+        let b, shift = 0, result = 0;
+        do {
+            b = encoded.charCodeAt(index++) - 63;
+            result |= (b & 0x1f) << shift;
+            shift += 5;
+        } while (b >= 0x20);
+        let dlat = ((result & 1) ? ~(result >> 1) : (result >> 1));
+        lat += dlat;
+
+        shift = 0;
+        result = 0;
+        do {
+            b = encoded.charCodeAt(index++) - 63;
+            result |= (b & 0x1f) << shift;
+            shift += 5;
+        } while (b >= 0x20);
+        let dlng = ((result & 1) ? ~(result >> 1) : (result >> 1));
+        lng += dlng;
+
+        points.push({ latitude: lat / 1e5, longitude: lng / 1e5 });
+    }
+    return points;
+}
+
+// Function to generate GPS data for a train along a route
+async function generateTrainData(trainId, route) {
+    const data = [];
+    const routePoints = await getRouteData(route.start, route.end);
+
+    if (routePoints.length === 0) {
+        console.error(`No data generated for train ${trainId} due to missing route points.`);
+        return data; // Return an empty array to prevent further processing
+    }
+
+    const pointsPerSegment = Math.floor(dataPointsPerTrain / routePoints.length);
+    
+    routePoints.forEach((point, index) => {
+        for (let i = 0; i < pointsPerSegment; i++) {
+            const timestamp = new Date(startTime + (index * pointsPerSegment + i) * interval).toISOString();
+            data.push({
+                trainId,
+                timestamp,
+                latitude: point.latitude,
+                longitude: point.longitude,
+            });
+        }
+    });
+
+    return data;
+}
+
+// Generate data for all trains
+(async () => {
+    const allTrainData = [];
+
+    for (let i = 1; i <= numberOfTrains; i++) {
+        const route = routes[i % routes.length]; // Cycle through available routes
+        const trainData = await generateTrainData(`Train_${i}`, route);
+        allTrainData.push(...trainData);
+    }
+
+    // Write the data to a JSON file
+    fs.writeFileSync('trainLocationData.json', JSON.stringify(allTrainData, null, 2));
+
+    console.log('Train location data generated successfully!');
+})();
