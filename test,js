@@ -3,7 +3,7 @@ const axios = require('axios');
 
 // Configuration
 const numberOfTrains = 1;
-const dataPointsPerTrain = 10;
+const dataPointsPerTrain = 1440;
 const startTime = new Date().getTime() - 24 * 60 * 60 * 1000;
 const interval = 60 * 1000;
 const apiKey = 'AIzaSyCmPlxCbwtWrPBSN46Y7bGyvDF1ry_R6kI';
