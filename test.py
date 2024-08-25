@@ -1,50 +1,70 @@
 import googlemaps
 import geojson
 import time
-import random
 from datetime import datetime, timedelta
 import json
-import polyline  # Add this import
+import polyline
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Initialize Google Maps client
 gmaps = googlemaps.Client(key='AIzaSyBYlmum_EIYi8B0nax7l-bJDLjJQjlhN-o')
 
-# Load the GeoJSON file containing train stations
+# Load the GeoJSON file containing train routes
 with open('SLRailwayRoutes.geojson', encoding='utf-8') as f:
-    stations = geojson.load(f)
-
-def get_random_station():
-    return random.choice(stations['features'])
+    routes = geojson.load(f)
 
 def get_route(origin, destination):
     """Get the route between two points using Google Maps API."""
     print(f"Requesting route from {origin} to {destination}")
-    directions_result = gmaps.directions(
-        origin=f"{origin['latitude']},{origin['longitude']}",
-        destination=f"{destination['latitude']},{destination['longitude']}",
-        mode="transit",
-        transit_mode="rail",
-        units="metric"
-    )
-    if not directions_result:
-        print("No directions found.")
+    try:
+        directions_result = gmaps.directions(
+            origin=f"{origin['latitude']},{origin['longitude']}",
+            destination=f"{destination['latitude']},{destination['longitude']}",
+            mode="transit",
+            transit_mode="rail",
+            units="metric"
+        )
+        if not directions_result:
+            print("No directions found using rail. Trying without transit mode...")
+            directions_result = gmaps.directions(
+                origin=f"{origin['latitude']},{origin['longitude']}",
+                destination=f"{destination['latitude']},{destination['longitude']}",
+                mode="driving",
+                units="metric"
+            )
+            if not directions_result:
+                print("No directions found even with driving mode.")
+                return []
+
+        print(f"Directions found: {directions_result}")
+        polyline_str = directions_result[0]['overview_polyline']['points']
+        return polyline.decode(polyline_str)
+    
+    except googlemaps.exceptions.ApiError as e:
+        print(f"Google Maps API error: {e}")
         return []
 
-    print(f"Directions found: {directions_result}")
-    # Extract the polyline from the directions result
-    polyline_str = directions_result[0]['overview_polyline']['points']
-    return polyline.decode(polyline_str)  # Use the polyline library's decode function
-
-def simulate_train_route(train_id, route, speed_kmph, start_time):
+def simulate_train_route(train_data, speed_kmph, start_time):
     """Simulate the train moving along the route at a certain speed."""
+    train_id = train_data['properties']['route']
+    origin_coords = train_data['geometry']['coordinates'][0]
+    destination_coords = train_data['geometry']['coordinates'][-1]
+
+    origin = {'latitude': origin_coords[1], 'longitude': origin_coords[0]}
+    destination = {'latitude': destination_coords[1], 'longitude': destination_coords[0]}
+    
+    print(f"Simulating route: {train_id}")
+    
+    route = get_route(origin, destination)
+
     if not route:
-        print(f"No route data for train {train_id}")
         return None
 
     geojson_route = {
         "type": "Feature",
         "properties": {
             "train_id": train_id,
+            "timestamps": [],
             "start_time": start_time.isoformat()
         },
         "geometry": {
@@ -55,6 +75,8 @@ def simulate_train_route(train_id, route, speed_kmph, start_time):
     
     # Convert speed to meters per minute
     speed_mpm = (speed_kmph * 1000) / 60
+    
+    current_time = start_time
     
     for i in range(len(route) - 1):
         start_point = route[i]
@@ -68,33 +90,34 @@ def simulate_train_route(train_id, route, speed_kmph, start_time):
         
         travel_time = distance / speed_mpm
         geojson_route['geometry']['coordinates'].append([start_point[1], start_point[0]])
+        geojson_route['properties']['timestamps'].append(current_time.isoformat())
         
-        print(f"Train {train_id} at {start_point} moving to {end_point}.")
+        print(f"Train {train_id} moving from {start_point} to {end_point} at {current_time}.")
         
-        time.sleep(travel_time * 5)  # Simulate the time delay
+        time.sleep(0.1)  # Simulate the passage of one minute
+        current_time += timedelta(minutes=1)
+    
+    # Add the final point and timestamp to the route
+    geojson_route['geometry']['coordinates'].append([route[-1][1], route[-1][0]])
+    geojson_route['properties']['timestamps'].append(current_time.isoformat())
     
     return geojson_route
 
-def generate_train_data(num_trains, speed_kmph, output_file):
-    """Generate train tracking data for multiple trains."""
+def generate_train_data(output_file, num_simultaneous_trains=5):
+    """Generate train tracking data for multiple trains concurrently."""
     trains_data = []
     start_time = datetime.now()
     
-    for train_id in range(num_trains):
-        origin_station = get_random_station()
-        destination_station = get_random_station()
+    with ThreadPoolExecutor(max_workers=num_simultaneous_trains) as executor:
+        futures = [
+            executor.submit(simulate_train_route, train, TRAIN_SPEED_KMPH, start_time)
+            for train in routes['features']
+        ]
         
-        origin = origin_station['geometry']['coordinates']
-        destination = destination_station['geometry']['coordinates']
-        
-        route = get_route(
-            {'latitude': origin[1], 'longitude': origin[0]},
-            {'latitude': destination[1], 'longitude': destination[0]}
-        )
-        
-        train_route_data = simulate_train_route(train_id, route, speed_kmph, start_time)
-        if train_route_data:
-            trains_data.append(train_route_data)
+        for future in as_completed(futures):
+            result = future.result()
+            if result:
+                trains_data.append(result)
     
     if trains_data:
         with open(output_file, 'w', encoding='utf-8') as f:
@@ -104,9 +127,8 @@ def generate_train_data(num_trains, speed_kmph, output_file):
         print("No data to write.")
 
 # Configuration
-NUM_TRAINS = 2
-TRAIN_SPEED_KMPH = 160  # Adjust speed as needed
+TRAIN_SPEED_KMPH = 960  # Adjust speed as needed
 OUTPUT_FILE = 'train_tracking_data.geojson'
 
-# Generate the train data
-generate_train_data(NUM_TRAINS, TRAIN_SPEED_KMPH, OUTPUT_FILE)
+# Generate the train data with up to 5 trains running simultaneously
+generate_train_data(OUTPUT_FILE, num_simultaneous_trains=10)
