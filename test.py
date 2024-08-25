@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 import json
 import polyline
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from shapely.geometry import Point
 
 # Initialize Google Maps client
 gmaps = googlemaps.Client(key='AIzaSyBYlmum_EIYi8B0nax7l-bJDLjJQjlhN-o')
@@ -13,9 +14,43 @@ gmaps = googlemaps.Client(key='AIzaSyBYlmum_EIYi8B0nax7l-bJDLjJQjlhN-o')
 with open('SLRailwayRoutes.geojson', encoding='utf-8') as f:
     routes = geojson.load(f)
 
+# Load the GeoJSON file containing railway stations
+with open('hotosm_lka_railways_points_geojson.geojson', encoding='utf-8') as f:
+    stations = geojson.load(f)
+
+# Create a dictionary of station points for easy lookup
+station_points = {feature['properties']['name']: feature['geometry']['coordinates'] for feature in stations['features']}
+
+def get_nearest_station(coord):
+    """Find the nearest railway station to a given coordinate."""
+    min_distance = float('inf')
+    nearest_station = None
+    for station_name, station_coord in station_points.items():
+        distance = Point(coord).distance(Point(station_coord))
+        if distance < min_distance:
+            min_distance = distance
+            nearest_station = station_coord
+    return nearest_station
+
 def get_route(origin, destination):
     """Get the route between two points using Google Maps API."""
-    print(f"Requesting route from {origin} to {destination}")
+    # Snap the origin and destination to the nearest railway station
+    origin_coord = [origin['longitude'], origin['latitude']]
+    destination_coord = [destination['longitude'], destination['latitude']]
+    
+    snapped_origin = get_nearest_station(origin_coord)
+    snapped_destination = get_nearest_station(destination_coord)
+    
+    if snapped_origin is None or snapped_destination is None:
+        print(f"No nearby station found for origin: {origin_coord} or destination: {destination_coord}")
+        return []
+
+    # Use snapped stations as origin and destination
+    origin = {'latitude': snapped_origin[1], 'longitude': snapped_origin[0]}
+    destination = {'latitude': snapped_destination[1], 'longitude': snapped_destination[0]}
+    
+    print(f"Requesting route from snapped {origin} to snapped {destination}")
+    
     try:
         directions_result = gmaps.directions(
             origin=f"{origin['latitude']},{origin['longitude']}",
@@ -60,6 +95,9 @@ def simulate_train_route(train_data, speed_kmph, start_time):
     if not route:
         return None
 
+    # Snap route points to the nearest railway stations
+    route = [get_nearest_station([coord[1], coord[0]]) for coord in route]
+
     geojson_route = {
         "type": "Feature",
         "properties": {
@@ -81,24 +119,28 @@ def simulate_train_route(train_data, speed_kmph, start_time):
     for i in range(len(route) - 1):
         start_point = route[i]
         end_point = route[i + 1]
+        
+        if not start_point or not end_point:
+            continue
+        
         # Calculate the distance between points
         distance = gmaps.distance_matrix(
-            origins=[start_point],
-            destinations=[end_point],
+            origins=[{'lat': start_point[1], 'lng': start_point[0]}],
+            destinations=[{'lat': end_point[1], 'lng': end_point[0]}],
             mode="walking"
         )['rows'][0]['elements'][0]['distance']['value']
         
         travel_time = distance / speed_mpm
-        geojson_route['geometry']['coordinates'].append([start_point[1], start_point[0]])
+        geojson_route['geometry']['coordinates'].append([start_point[0], start_point[1]])
         geojson_route['properties']['timestamps'].append(current_time.isoformat())
         
         print(f"Train {train_id} moving from {start_point} to {end_point} at {current_time}.")
         
-        time.sleep(0.1)  # Simulate the passage of one minute
+        time.sleep(1)  # Simulate the passage of one minute
         current_time += timedelta(minutes=1)
     
     # Add the final point and timestamp to the route
-    geojson_route['geometry']['coordinates'].append([route[-1][1], route[-1][0]])
+    geojson_route['geometry']['coordinates'].append([route[-1][0], route[-1][1]])
     geojson_route['properties']['timestamps'].append(current_time.isoformat())
     
     return geojson_route
