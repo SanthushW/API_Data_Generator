@@ -1,134 +1,119 @@
-import googlemaps
-import geojson
-import time
-from datetime import datetime, timedelta
+import pika
 import json
-import polyline
+import time
+import random
+from pymongo import MongoClient
+from geopy.distance import geodesic
+from datetime import datetime, timezone
+import geojson
+import os
+import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# Initialize Google Maps client
-gmaps = googlemaps.Client(key='AIzaSyBYlmum_EIYi8B0nax7l-bJDLjJQjlhN-o')
+timestamp = datetime.now(timezone.utc).isoformat()
 
-# Load the GeoJSON file containing train routes
-with open('SLRailwayRoutes.geojson', encoding='utf-8') as f:
-    routes = geojson.load(f)
+# Load GeoJSON railway data
+file_path = 'hotosm_lka_railways_lines.geojson'
 
-def get_route(origin, destination):
-    """Get the route between two points using Google Maps API."""
-    print(f"Requesting route from {origin} to {destination}")
-    try:
-        directions_result = gmaps.directions(
-            origin=f"{origin['latitude']},{origin['longitude']}",
-            destination=f"{destination['latitude']},{destination['longitude']}",
-            mode="transit",
-            transit_mode="rail",
-            units="metric"
-        )
-        if not directions_result:
-            print("No directions found using rail. Trying without transit mode...")
-            directions_result = gmaps.directions(
-                origin=f"{origin['latitude']},{origin['longitude']}",
-                destination=f"{destination['latitude']},{destination['longitude']}",
-                mode="driving",
-                units="metric"
-            )
-            if not directions_result:
-                print("No directions found even with driving mode.")
-                return []
+with open(file_path) as f:
+    railway_data = geojson.load(f)
 
-        print(f"Directions found: {directions_result}")
-        polyline_str = directions_result[0]['overview_polyline']['points']
-        return polyline.decode(polyline_str)
+# Load train data from JSON file
+with open('trains.json') as f:
+    trains = json.load(f)
+
+def find_nearest_point(train_position):
+    """
+    Finds the nearest point on the railway line to the given train position.
+    """
+    min_distance = float('inf')
+    nearest_point = None
     
-    except googlemaps.exceptions.ApiError as e:
-        print(f"Google Maps API error: {e}")
-        return []
+    for feature in railway_data['features']:
+        for coord in feature['geometry']['coordinates']:
+            point = (coord[1], coord[0])  # GeoJSON stores coordinates as [longitude, latitude]
+            distance = geodesic(train_position, point).meters
+            if distance < min_distance:
+                min_distance = distance
+                nearest_point = point
+                
+    return nearest_point
 
-def simulate_train_route(train_data, speed_kmph, start_time):
-    """Simulate the train moving along the route at a certain speed."""
-    train_id = train_data['properties']['route']
-    origin_coords = train_data['geometry']['coordinates'][0]
-    destination_coords = train_data['geometry']['coordinates'][-1]
-
-    origin = {'latitude': origin_coords[1], 'longitude': origin_coords[0]}
-    destination = {'latitude': destination_coords[1], 'longitude': destination_coords[0]}
+def simulate_iot_data(train_id, train_name, route):
+    """
+    Simulate data from IoT devices attached to trains.
+    Sends signals at one-minute intervals.
+    """
+    previous_position = route[0]
     
-    print(f"Simulating route: {train_id}")
-    
-    route = get_route(origin, destination)
-
-    if not route:
-        return None
-
-    geojson_route = {
-        "type": "Feature",
-        "properties": {
+    for position in route[1:]:
+        # Calculate the distance between the current position and the next position
+        speed = random.uniform(30, 100)  # Random speed between 30 and 100 km/h
+        distance_to_next_point = geodesic(previous_position[::-1], position[::-1]).meters
+        
+        # Calculate the time it would take to travel to the next point
+        travel_time = distance_to_next_point / (speed * 1000 / 3600)  # Speed converted to m/s
+        
+        # If the travel time is less than a minute, skip to the next position
+        if travel_time < 60:
+            nearest_position = find_nearest_point(position[::-1])
+            previous_position = position
+        else:
+            # Calculate the fraction of the distance to travel in one minute
+            fraction = 60 / travel_time
+            next_latitude = previous_position[1] + fraction * (position[1] - previous_position[1])
+            next_longitude = previous_position[0] + fraction * (position[0] - previous_position[0])
+            nearest_position = find_nearest_point((next_latitude, next_longitude))
+            previous_position = (next_longitude, next_latitude)
+        
+        # Update timestamp for each iteration
+        timestamp = datetime.now(timezone.utc).isoformat()
+        
+        # Simulate IoT data
+        data = [
+        {
             "train_id": train_id,
-            "timestamps": [],
-            "start_time": start_time.isoformat()
-        },
-        "geometry": {
-            "type": "LineString",
-            "coordinates": []
+            "train_name": train_name,
+            "latitude": nearest_position[0],
+            "longitude": nearest_position[1],
+            "timestamp": timestamp,
+            "speed": speed,  # Use the calculated speed
+            "signal_strength": random.uniform(0, 100)  # Random signal strength between 0 and 100%
         }
-    }
-    
-    # Convert speed to meters per minute
-    speed_mpm = (speed_kmph * 1000) / 60
-    
-    current_time = start_time
-    
-    for i in range(len(route) - 1):
-        start_point = route[i]
-        end_point = route[i + 1]
-        # Calculate the distance between points
-        distance = gmaps.distance_matrix(
-            origins=[start_point],
-            destinations=[end_point],
-            mode="walking"
-        )['rows'][0]['elements'][0]['distance']['value']
-        
-        travel_time = distance / speed_mpm
-        geojson_route['geometry']['coordinates'].append([start_point[1], start_point[0]])
-        geojson_route['properties']['timestamps'].append(current_time.isoformat())
-        
-        print(f"Train {train_id} moving from {start_point} to {end_point} at {current_time}.")
-        
-        time.sleep(0.1)  # Simulate the passage of one minute
-        current_time += timedelta(minutes=1)
-    
-    # Add the final point and timestamp to the route
-    geojson_route['geometry']['coordinates'].append([route[-1][1], route[-1][0]])
-    geojson_route['properties']['timestamps'].append(current_time.isoformat())
-    
-    return geojson_route
-
-def generate_train_data(output_file, num_simultaneous_trains=5):
-    """Generate train tracking data for multiple trains concurrently."""
-    trains_data = []
-    start_time = datetime.now()
-    
-    with ThreadPoolExecutor(max_workers=num_simultaneous_trains) as executor:
-        futures = [
-            executor.submit(simulate_train_route, train, TRAIN_SPEED_KMPH, start_time)
-            for train in routes['features']
         ]
         
+        # Send data to web API endpoint
+        api_endpoint = "http://localhost:3001/api/gpsdata"  # Replace with your actual API endpoint
+        response = requests.post(api_endpoint, json=data)
+        if response.status_code == 201:
+            print(f"Successfully sent IoT data: {data}")
+        else:
+            print(f"Failed to send data: {response.status_code}, {response.text}")
+        time.sleep(60)  # Wait for one minute
+
+
+def simulate_train_position(train_id, train_name, route):
+    """
+    Simulate the train position along the route.
+    """
+    print(f"Simulating train {train_name} (ID: {train_id}) on route")
+    simulate_iot_data(train_id, train_name, route)
+
+def run_simulations():
+    """
+    Run simulations for a random selection of trains concurrently.
+    """
+    all_train_ids = list(trains.keys())
+    selected_train_ids = random.sample(all_train_ids, min(3, len(all_train_ids)))  # Select up to 3 trains
+
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        futures = [executor.submit(simulate_train_position, train_id, trains[train_id]['name'], trains[train_id]['route'])
+                   for train_id in selected_train_ids]
         for future in as_completed(futures):
-            result = future.result()
-            if result:
-                trains_data.append(result)
-    
-    if trains_data:
-        with open(output_file, 'w', encoding='utf-8') as f:
-            geojson.dump(geojson.FeatureCollection(trains_data), f)
-        print(f"Data written to {output_file}")
-    else:
-        print("No data to write.")
+            try:
+                future.result()  # Handle exceptions if any
+            except Exception as e:
+                print(f"An error occurred: {e}")
 
-# Configuration
-TRAIN_SPEED_KMPH = 160  # Adjust speed as needed
-OUTPUT_FILE = 'train_tracking_data.geojson'
-
-# Generate the train data with up to 5 trains running simultaneously
-generate_train_data(OUTPUT_FILE, num_simultaneous_trains=10)
+if __name__ == "__main__":
+    run_simulations()
